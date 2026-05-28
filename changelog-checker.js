@@ -7,12 +7,14 @@
      src="changelog-checker.js?pass=PASSWORD&salt=SALT"></script>
 
    Kötelező elem az oldalon:  <button id="btn-version"></button>
-   Opcionális letöltés gomb:  <a id="btn-download" href="#" style="display:none">...</a>
 
-   Megjegyzés: base64 salt-ban lévő + jel → %2B az URL-ben
+   Verzió formátum: [S|A|B]YYMMDD[szám]
+     S = Stabil, A = Alpha teszt, B = Béta
+
+   jsDelivr cache frissítés:
+     https://purge.jsdelivr.net/gh/USER/REPO@BRANCH/changelog-checker.js
 ───────────────────────────────────────────────────────────── */
 (function () {
-  /* ── Saját script src rögzítése (document.currentScript csak szinkron futásban elérhető) ── */
   const SELF_SRC = document.currentScript ? document.currentScript.src : '';
 
   /* ── Helpers ── */
@@ -31,6 +33,14 @@
     const b = new Uint8Array(s.length);
     for (let i = 0; i < s.length; i++) b[i] = s.charCodeAt(i);
     return b;
+  }
+
+  /* ── Verzió típus ── */
+  function getVersionWarning(version) {
+    const prefix = (version || '')[0]?.toUpperCase();
+    if (prefix === 'A') return 'Figyelem! Ez még csak egy első körös teszt verzió, hibákat tartalmazhat!';
+    if (prefix === 'B') return 'Figyelem! Ez még nem a végleges stabil verzió, hibákat tartalmazhat!';
+    return null;
   }
 
   /* ── Crypto ── */
@@ -56,7 +66,7 @@
     return JSON.parse(new TextDecoder().decode(buf));
   }
 
-  /* ── CSS injektálás (önálló modal, Bootstrap nélkül) ── */
+  /* ── CSS injektálás ── */
   function injectStyles() {
     if (document.getElementById('cl-styles')) return;
     const style = document.createElement('style');
@@ -94,10 +104,7 @@
         background: #252a3d; border: 1px solid #2d3250; border-radius: 8px;
         padding: 12px 16px; margin-bottom: 10px;
       }
-      .cl-entry-meta {
-        display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
-        margin-bottom: 6px;
-      }
+      .cl-entry-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
       .cl-ver {
         font-family: monospace; font-size: 11px; background: #3a3f5c;
         padding: 2px 7px; border-radius: 4px; color: #94a3b8;
@@ -118,10 +125,7 @@
       .cl-entry-title { font-weight: 600; font-size: 13px; color: #f1f5f9; }
       .cl-entry-body  { font-size: 12px; color: #94a3b8; margin-top: 4px; white-space: pre-wrap; }
       .cl-entry-date  { font-size: 11px; color: #475569; margin-top: 6px; }
-      .cl-btn {
-        border: none; border-radius: 6px; padding: 6px 14px;
-        font-size: 12px; font-weight: 600; cursor: pointer;
-      }
+      .cl-btn { border: none; border-radius: 6px; padding: 6px 14px; font-size: 12px; font-weight: 600; cursor: pointer; }
       .cl-btn-close    { background: #334155; color: #cbd5e1; margin-left: auto; }
       .cl-btn-close:hover { background: #475569; }
       .cl-btn-download { background: #d97706; color: #fff; }
@@ -129,18 +133,20 @@
       #cl-update-banner {
         display: none; position: fixed; bottom: 0; left: 0; right: 0; z-index: 9997;
         background: #dc3545; color: #fff; padding: 10px 20px;
-        align-items: center; justify-content: center; gap: 12px;
+        align-items: center; justify-content: center; gap: 16px; flex-wrap: wrap;
         font-size: 13px; font-weight: 600; font-family: 'Segoe UI', system-ui, sans-serif;
         box-shadow: 0 -2px 16px rgba(0,0,0,.4);
       }
       #cl-update-banner.open { display: flex; }
+      #cl-banner-warning {
+        font-size: 12px; font-weight: 400; opacity: .9;
+        border-left: 2px solid rgba(255,255,255,.4); padding-left: 12px;
+      }
       #cl-update-banner button {
         background: #fff; color: #dc3545; border: none; border-radius: 4px;
-        padding: 4px 12px; font-weight: 700; cursor: pointer; font-size: 12px;
+        padding: 4px 12px; font-weight: 700; cursor: pointer; font-size: 12px; white-space: nowrap;
       }
-      #btn-version.cl-has-update {
-        animation: cl-pulse 1.4s ease-in-out infinite;
-      }
+      #btn-version.cl-has-update { animation: cl-pulse 1.4s ease-in-out infinite; }
       @keyframes cl-pulse {
         0%,100% { box-shadow: 0 0 0 0 rgba(220,53,69,.7); }
         50%      { box-shadow: 0 0 0 8px rgba(220,53,69,0); }
@@ -161,7 +167,9 @@
           <span id="cl-dialog-title">Változásnapló</span>
           <button id="cl-dialog-close" title="Bezárás">&#x2715;</button>
         </div>
-        <div id="cl-dialog-body"><p style="color:#64748b;text-align:center;padding:24px">Betöltés...</p></div>
+        <div id="cl-dialog-body">
+          <p style="color:#64748b;text-align:center;padding:24px">Betöltés...</p>
+        </div>
         <div id="cl-dialog-footer">
           <button class="cl-btn cl-btn-close" id="cl-btn-close-footer">Bezárás</button>
         </div>
@@ -170,14 +178,16 @@
 
     const banner = document.createElement('div');
     banner.id = 'cl-update-banner';
-    banner.innerHTML = `<span id="cl-banner-text"></span><button id="cl-banner-open">Megnézem</button>`;
+    banner.innerHTML =
+      `<span id="cl-banner-text"></span>` +
+      `<span id="cl-banner-warning" style="display:none"></span>` +
+      `<button id="cl-banner-open">Megnézem</button>`;
     document.body.appendChild(banner);
 
-    // Zárás kezelők
     document.getElementById('cl-dialog-close').addEventListener('click', closeModal);
     document.getElementById('cl-btn-close-footer').addEventListener('click', closeModal);
     backdrop.addEventListener('click', e => { if (e.target === backdrop) closeModal(); });
-    document.getElementById('cl-banner-open').addEventListener('click', openModal);
+    // cl-banner-open kattintás kezelőjét az init() állítja be (hogy a decrypt logikát is meg tudja hívni)
   }
 
   function openModal()  { document.getElementById('cl-backdrop')?.classList.add('open'); }
@@ -220,9 +230,8 @@
   function init() {
     const selfParams = parseQuery(SELF_SRC);
     const PASS = selfParams['pass'] || 'changelog_manager_auto_unlock_secret_2026';
-    const SALT = selfParams['salt'] || 'Y2hhbmdlbG9nXzIwMjYhIQ==';
+    const SALT = selfParams['salt'] || 'Y2hhbmdlbG9nXzIwMjYh';
 
-    // cl-script tag keresése (combined.changelog.js)
     const clEl = document.getElementById('cl-script') ||
       Array.from(document.querySelectorAll('script[src]'))
         .find(s => s.src.includes('.changelog.js') && !s.src.includes('changelog-checker'));
@@ -233,7 +242,6 @@
     const current  = clParams['v'];
     if (!slug || !current) return;
 
-    // Changelog adatobjektum
     const clObj =
       (typeof CHANGELOG_COMBINED !== 'undefined' ? CHANGELOG_COMBINED : null) ||
       window['CHANGELOG_' + slug.toUpperCase().replace(/-/g, '_')] || null;
@@ -247,60 +255,84 @@
     injectStyles();
     injectModal();
 
-    // #btn-version feltöltése és kattintás kezelő
+    /* ── Közös decrypt + megjelenítés függvény ── */
+    let entriesCache = null;
+
+    async function loadAndOpenModal() {
+      openModal();
+      if (entriesCache) { renderEntries(entriesCache); return; }
+
+      // "Betöltés..." szöveg visszaállítása amíg tölt
+      const body = document.getElementById('cl-dialog-body');
+      if (body) body.innerHTML = '<p style="color:#64748b;text-align:center;padding:24px">Betöltés...</p>';
+
+      try {
+        console.log(`[changelog-checker] Visszafejtés: slug=${slug}, salt="${SALT}", iv="${appData.encrypted?.iv?.slice(0,8)}..."`);
+        entriesCache = await decryptEntries(appData.encrypted, PASS, SALT);
+        renderEntries(entriesCache);
+      } catch (err) {
+        console.error('[changelog-checker] Visszafejtési hiba — ellenőrizd a ?pass= és ?salt= paramétereket:', err);
+        if (body) body.innerHTML =
+          `<p style="color:#f87171;padding:16px">
+            <strong>Visszafejtési hiba (${err.name || 'OperationError'})</strong><br>
+            Ellenőrizd a <code>?pass=</code> és <code>?salt=</code> paramétereket a checker script src-ben.<br>
+            Az adatot titkosító salt-nak egyeznie kell.
+          </p>`;
+      }
+    }
+
+    /* ── #btn-version ── */
     const btn = document.getElementById('btn-version');
     if (btn) {
       btn.textContent = `v${current}`;
+      btn.addEventListener('click', loadAndOpenModal);
+    }
 
-      let entriesCache = null;
-      btn.addEventListener('click', async () => {
-        openModal();
-        if (!entriesCache) {
-          try {
-            entriesCache = await decryptEntries(appData.encrypted, PASS, SALT);
-          } catch (err) {
-            document.getElementById('cl-dialog-body').innerHTML =
-              `<p style="color:#f87171;padding:16px">Visszafejtési hiba: ${err.message}</p>`;
-            return;
-          }
-        }
-        renderEntries(entriesCache);
-      });
+    /* ── Banner "Megnézem" gomb — szintén loadAndOpenModal ── */
+    document.getElementById('cl-banner-open')?.addEventListener('click', loadAndOpenModal);
 
-      // Frissítési UI
-      if (latest && latest > current) {
-        const seenKey = 'cl_seen_' + slug;
-        btn.classList.add('cl-has-update');
+    /* ── Frissítési UI ── */
+    const hasUpdate  = latest && latest > current;
+    const typeWarning = getVersionWarning(current);
 
-        if (localStorage.getItem(seenKey) !== latest) {
-          const banner = document.getElementById('cl-update-banner');
-          document.getElementById('cl-banner-text').textContent =
-            `⚠ Frissítés elérhető: ${latest} verzió (jelenlegi: ${current})`;
-          banner?.classList.add('open');
-        }
+    if (hasUpdate || typeWarning) {
+      const banner    = document.getElementById('cl-update-banner');
+      const textEl    = document.getElementById('cl-banner-text');
+      const warningEl = document.getElementById('cl-banner-warning');
+
+      if (hasUpdate) {
+        if (btn) btn.classList.add('cl-has-update');
+        textEl.textContent = `⚠ Frissítés elérhető: ${latest} verzió (jelenlegi: ${current})`;
 
         // Letöltés gomb a modal footerben
         const footer = document.getElementById('cl-dialog-footer');
         if (footer && !document.getElementById('cl-btn-download')) {
           const dl = document.createElement('button');
-          dl.id        = 'cl-btn-download';
-          dl.className = 'cl-btn cl-btn-download';
+          dl.id          = 'cl-btn-download';
+          dl.className   = 'cl-btn cl-btn-download';
           dl.textContent = `⬇ Frissítés letöltése (${latest})`;
           dl.addEventListener('click', () => {
-            localStorage.setItem('cl_seen_' + slug, latest);
-            document.getElementById('cl-update-banner')?.classList.remove('open');
-            btn.classList.remove('cl-has-update');
-            // TODO: ide kerülhet a tényleges letöltési link
-            alert(`Frissítés: ${latest} — add meg a letöltési URL-t a changelog-checker.js-ben.`);
+            // TODO: ide kerülhet a tényleges letöltési URL
+            alert(`Frissítés: ${latest}`);
           });
           footer.prepend(dl);
         }
       }
+
+      if (typeWarning) {
+        warningEl.textContent = typeWarning;
+        warningEl.style.display = 'block';
+        if (!hasUpdate) {
+          // Csak típusfigyelmeztetés → narancssárga háttér
+          banner.style.background = '#d97706';
+          document.querySelectorAll('#cl-update-banner button').forEach(b => b.style.color = '#d97706');
+        }
+      }
+
+      banner?.classList.add('open');
     }
   }
 
-  // window.load-ot használunk: garantálja hogy a CDN-ről töltött
-  // combined.changelog.js már lefutott és CHANGELOG_COMBINED elérhető.
   if (document.readyState === 'complete') {
     init();
   } else {
